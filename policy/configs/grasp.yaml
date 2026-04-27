@@ -1,0 +1,19 @@
+# Diffusion Policy 학습 config — grasp skill
+# LeRobot 포맷 데이터셋 경로 및 하이퍼파라미터
+
+dataset:
+  repo_id: "${HF_USER}/skill_grasp"
+  
+policy:
+  type: diffusion
+  
+training:
+  batch_size: 64
+  num_epochs: 500
+  lr: 1.0e-4
+  
+# RTC (Real-Time Chunking) — inference 시 적용
+rtc:
+  enabled: true
+  execution_horizon: 10
+  max_guidance_weight: 10.0

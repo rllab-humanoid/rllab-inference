@@ -1,0 +1,11 @@
+# 부품 5종 탐지 데이터셋 config
+path: perception/data
+train: images/train
+val: images/val
+
+names:
+  0: flange_nut
+  1: gear_ring
+  2: spacer_ring
+  3: hex_nut
+  4: dome_nut
