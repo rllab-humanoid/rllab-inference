@@ -1,0 +1,29 @@
+start_inference:
+  ros__parameters:
+    service_name: /task/command
+    saved_policy_list_service_name: /get_saved_policies
+    get_robot_types_service_name: /get_robot_types
+    set_robot_type_service_name: /set_robot_type
+    use_saved_policy_list_service: false
+    robot_type: ''
+    task_name: ''
+    task_type: inference
+    user_id: ''
+    task_instruction:
+      - ''
+    policy_path: /root/ros2_ws/src/physical_ai_tools/lerobot/outputs/train/putput/checkpoints/000001/pretrained_model
+    fps: 30
+    tags:
+      - ffw_bg2_rev4
+      - robotis
+    warmup_time_s: 5
+    episode_time_s: 20
+    reset_time_s: 5
+    num_episodes: 5
+    push_to_hub: true
+    private_mode: false
+    use_optimized_save_mode: true
+    record_inference_mode: false
+    record_rosbag2: false
+    service_wait_timeout_s: 10.0
+    response_timeout_s: 30.0
