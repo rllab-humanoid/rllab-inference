@@ -1,0 +1,10 @@
+.git
+__pycache__/
+*.pyc
+.env
+model_cache/
+outputs/
+wandb/
+runs/
+dist/
+build/

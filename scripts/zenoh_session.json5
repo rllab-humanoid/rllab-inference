@@ -1,0 +1,21 @@
+{
+  "mode": "client",
+  "connect": {
+    "endpoints": ["tcp/141.223.165.16:7447"],
+    "timeout_ms": 5000,
+    "exit_on_failure": false
+  },
+  "scouting": {
+    "multicast": {
+      "enabled": false
+    },
+    "gossip": {
+      "enabled": false
+    }
+  },
+  "transport": {
+    "shared_memory": {
+      "enabled": false
+    }
+  }
+}

@@ -1,0 +1,14 @@
+# ── Vision / Inference ─────────────────────────────────────────────────────
+vllm==0.15.1                 # aarch64 wheel available; avoid source build fallback
+Pillow>=10.0.0,<13.0.0
+
+# ── Perception ─────────────────────────────────────────────────────────────
+ultralytics==8.4.42          # Pin to reduce resolver backtracking
+
+# ── Policy ─────────────────────────────────────────────────────────────────
+lerobot==0.5.1               # Requires packaging>=24.2
+h5py>=3.16.0
+
+# ── Utilities ──────────────────────────────────────────────────────────────
+huggingface-hub>=1.0.0,<2.0.0
+packaging>=24.2

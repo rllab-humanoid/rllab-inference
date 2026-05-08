@@ -1,0 +1,5 @@
+# Agent + perception runtime
+Pillow>=10.0.0,<13.0.0
+ultralytics==8.4.42
+numpy<2
+

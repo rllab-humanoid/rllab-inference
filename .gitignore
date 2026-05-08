@@ -15,3 +15,4 @@ dist/
 build/
 perception/data/images/
 perception/data/labels/
+model_cache/
