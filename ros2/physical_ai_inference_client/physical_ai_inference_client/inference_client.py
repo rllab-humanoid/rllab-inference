@@ -1,9 +1,14 @@
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import rclpy
 from rclpy.parameter import Parameter
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from control_msgs.action import FollowJointTrajectory
 from physical_ai_interfaces.msg import TaskInfo
 from physical_ai_interfaces.srv import (
     GetRobotTypeList,
@@ -11,8 +16,11 @@ from physical_ai_interfaces.srv import (
     SendCommand,
     SetRobotType,
 )
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.utilities import remove_ros_args
+from sensor_msgs.msg import JointState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
 class PhysicalAiInferenceClient(Node):
@@ -77,15 +85,53 @@ class PhysicalAiInferenceClient(Node):
         self._current_policy_path = str(self.get_parameter('policy_path').value)
         self._current_robot_type = str(self.get_parameter('robot_type').value)
 
+        self._action_clients = {
+            'arm_l': ActionClient(
+                self, FollowJointTrajectory,
+                '/arm_l_controller/follow_joint_trajectory',
+            ),
+            'arm_r': ActionClient(
+                self, FollowJointTrajectory,
+                '/arm_r_controller/follow_joint_trajectory',
+            ),
+            'head': ActionClient(
+                self, FollowJointTrajectory,
+                '/head_controller/follow_joint_trajectory',
+            ),
+            'lift': ActionClient(
+                self, FollowJointTrajectory,
+                '/lift_controller/follow_joint_trajectory',
+            ),
+        }
+        self._joint_names = {
+            'arm_l': [
+                'arm_l_joint1', 'arm_l_joint2', 'arm_l_joint3', 'arm_l_joint4',
+                'arm_l_joint5', 'arm_l_joint6', 'arm_l_joint7', 'gripper_l_joint1',
+            ],
+            'arm_r': [
+                'arm_r_joint1', 'arm_r_joint2', 'arm_r_joint3', 'arm_r_joint4',
+                'arm_r_joint5', 'arm_r_joint6', 'arm_r_joint7', 'gripper_r_joint1',
+            ],
+            'head': ['head_joint1', 'head_joint2'],
+            'lift': ['lift_joint'],
+        }
+        self._joint_states: JointState | None = None
+        self._joint_state_sub = self.create_subscription(
+            JointState, '/joint_states', self._joint_state_callback, 10
+        )
+        self._initial_positions: dict | None = self._load_initial_positions()
+
     def run_console(self) -> bool:
         self.get_logger().info(
             'Interactive inference controller ready. '
-            'Input: s=start, f=finish/stop, q=quit'
+            'Input: s=start, f=finish/stop, t=initial pose, q=quit'
         )
 
         while rclpy.ok():
             try:
-                command = input('\n[s] start inference, [f] stop inference, [q] quit > ')
+                command = input(
+                    '\n[s] start inference, [f] stop inference, [t] initial pose, [q] quit > '
+                )
             except (EOFError, KeyboardInterrupt):
                 print()
                 self.get_logger().info('Exiting interactive controller')
@@ -96,13 +142,138 @@ class PhysicalAiInferenceClient(Node):
                 self._handle_start_input()
             elif command == 'f':
                 self.send_finish()
+            elif command == 't':
+                self._handle_initial_pose_input()
             elif command == 'q':
                 self.get_logger().info('Exiting interactive controller')
                 return True
             elif command:
-                print('Unknown input. Use s, f, or q.')
+                print('Unknown input. Use s, f, t, or q.')
 
         return True
+
+    def _joint_state_callback(self, msg: JointState) -> None:
+        self._joint_states = msg
+
+    def _load_initial_positions(self) -> dict | None:
+        try:
+            pkg_share = get_package_share_directory('physical_ai_inference_client')
+            config_path = os.path.join(pkg_share, 'config', 'initial_positions.yaml')
+            with open(config_path) as f:
+                data = yaml.safe_load(f)
+            self.get_logger().info(f'Loaded initial positions from: {config_path}')
+            return data
+        except Exception as e:
+            self.get_logger().warning(f'Could not load initial_positions.yaml: {e}')
+            return None
+
+    def _handle_initial_pose_input(self) -> None:
+        if not self._initial_positions:
+            print('Initial positions config not loaded. Cannot move to initial pose.')
+            return
+        step_names: list[str] = self._initial_positions.get('step_names', [])
+        if not step_names:
+            print('No step_names defined in initial_positions.yaml.')
+            return
+        print(f'\nMoving to initial pose through {len(step_names)} step(s): {step_names}')
+        for step_name in step_names:
+            print(f'  Executing step: {step_name}')
+            if not self._execute_initial_pose_step(step_name):
+                print(f'  Step "{step_name}" failed. Aborting.')
+                return
+            print(f'  Step "{step_name}" complete.')
+        print('Initial pose reached.')
+
+    def _execute_initial_pose_step(self, step_name: str) -> bool:
+        step_data: dict = self._initial_positions.get(step_name, {})
+        if not step_data:
+            self.get_logger().error(f'Step "{step_name}" not found in initial_positions.yaml')
+            return False
+
+        self._joint_states = None
+        deadline = self.get_clock().now().nanoseconds + int(5e9)
+        while self._joint_states is None:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if self.get_clock().now().nanoseconds > deadline:
+                self.get_logger().error('Timed out waiting for /joint_states')
+                return False
+
+        js = self._joint_states
+        duration = float(self._initial_positions.get('duration', 5.0))
+        timeout = float(self._initial_positions.get('trajectory_timeout_s', 30.0))
+
+        for controller in ('arm_l', 'arm_r', 'head', 'lift'):
+            key = f'{controller}_positions'
+            if key not in step_data:
+                continue
+            target: list[float] = step_data[key]
+            joint_names = self._joint_names[controller]
+            start = self._extract_joint_positions(js, joint_names)
+            if start is None:
+                self.get_logger().error(
+                    f'Cannot read {controller} joints from /joint_states'
+                )
+                return False
+
+            traj = self._create_smooth_trajectory(joint_names, start, target, duration)
+            client = self._action_clients[controller]
+            if not client.wait_for_server(timeout_sec=5.0):
+                self.get_logger().error(f'{controller} action server not available')
+                return False
+
+            goal = FollowJointTrajectory.Goal()
+            goal.trajectory = traj
+            goal.goal_time_tolerance.sec = 0
+            goal.goal_time_tolerance.nanosec = 0
+
+            send_future = client.send_goal_async(goal)
+            rclpy.spin_until_future_complete(self, send_future, timeout_sec=timeout)
+            if not send_future.done() or not send_future.result().accepted:
+                self.get_logger().error(f'{controller} goal rejected or timed out')
+                return False
+
+            result_future = send_future.result().get_result_async()
+            rclpy.spin_until_future_complete(self, result_future, timeout_sec=timeout)
+            if not result_future.done():
+                self.get_logger().error(f'{controller} result timed out')
+                return False
+
+        return True
+
+    @staticmethod
+    def _extract_joint_positions(
+        js: JointState, joint_names: list[str]
+    ) -> list[float] | None:
+        name_list = list(js.name)
+        try:
+            return [js.position[name_list.index(j)] for j in joint_names]
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _create_smooth_trajectory(
+        joint_names: list[str],
+        start: list[float],
+        end: list[float],
+        duration: float,
+        num_points: int = 100,
+    ) -> JointTrajectory:
+        traj = JointTrajectory()
+        traj.joint_names = joint_names
+        for t in np.linspace(0.0, duration, num_points):
+            tn = t / duration
+            t2, t3, t4, t5 = tn**2, tn**3, tn**4, tn**5
+            pc = 10 * t3 - 15 * t4 + 6 * t5
+            vc = (30 * t2 - 60 * t3 + 30 * t4) / duration
+            ac = (60 * tn - 180 * t2 + 120 * t3) / (duration**2)
+            pt = JointTrajectoryPoint()
+            pt.positions     = [s + (e - s) * pc for s, e in zip(start, end)]
+            pt.velocities    = [(e - s) * vc      for s, e in zip(start, end)]
+            pt.accelerations = [(e - s) * ac      for s, e in zip(start, end)]
+            pt.time_from_start.sec     = int(t)
+            pt.time_from_start.nanosec = int((t % 1) * 1e9)
+            traj.points.append(pt)
+        return traj
 
     def _handle_start_input(self) -> None:
         if not self.select_and_set_robot_type():

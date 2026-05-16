@@ -1,0 +1,31 @@
+# t 커맨드로 이동할 초기 포즈 설정
+# step_names 순서대로 순차 실행됨
+#
+# 각 step key에서 controller별 포지션 배열 정의:
+#   arm_l_positions: [arm_l_joint1..7, gripper_l_joint1]  (8개)
+#   arm_r_positions: [arm_r_joint1..7, gripper_r_joint1]  (8개)
+#   head_positions:  [head_joint1, head_joint2]           (2개)
+#   lift_positions:  [lift_joint]                         (1개)
+# key가 없으면 해당 controller는 움직이지 않음
+
+duration: 5.0
+trajectory_timeout_s: 30.0
+
+step_names:
+  - extend_sideways
+  - final_pose
+
+# Step 1: 현재 위치에서 z 축 올리지 않고 양팔 옆으로 뻗기
+# !! record_joint_positions 툴로 실제 값을 채울 것 !!
+extend_sideways:
+  arm_l_positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  arm_r_positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  head_positions:  [0.0, 0.0]
+
+# Step 2: 최종 목표 포즈
+# !! record_joint_positions 툴로 실제 값을 채울 것 !!
+final_pose:
+  arm_l_positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  arm_r_positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  head_positions:  [0.0, 0.0]
+  lift_positions:  [0.0]

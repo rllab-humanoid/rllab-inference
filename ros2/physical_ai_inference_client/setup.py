@@ -9,7 +9,10 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml', 'README.md']),
-        ('share/' + package_name + '/config', ['config/inference.yaml']),
+        ('share/' + package_name + '/config', [
+            'config/inference.yaml',
+            'config/initial_positions.yaml',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,6 +25,7 @@ setup(
         'console_scripts': [
             'start_inference = physical_ai_inference_client.inference_client:main',
             'test_send_command_server = physical_ai_inference_client.test_send_command_server:main',
+            'record_joint_positions = physical_ai_inference_client.record_joint_positions:main',
         ],
     },
 )
