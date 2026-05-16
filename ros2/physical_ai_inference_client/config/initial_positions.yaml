@@ -7,6 +7,10 @@
 #   head_positions:  [head_joint1, head_joint2]           (2개)
 #   lift_positions:  [lift_joint]                         (1개)
 # key가 없으면 해당 controller는 움직이지 않음
+#
+# 특정 joint를 현재 값 그대로 유지하려면 해당 위치에 null 입력:
+#   arm_l_positions: [null, null, 0.5, null, null, null, null, null]
+#   → joint1,2,4,5,6,7,gripper 는 현재 위치 유지, joint3만 0.5로 이동
 
 duration: 5.0
 trajectory_timeout_s: 30.0

@@ -206,7 +206,7 @@ class PhysicalAiInferenceClient(Node):
             key = f'{controller}_positions'
             if key not in step_data:
                 continue
-            target: list[float] = step_data[key]
+            target: list[float | None] = step_data[key]
             joint_names = self._joint_names[controller]
             start = self._extract_joint_positions(js, joint_names)
             if start is None:
@@ -215,6 +215,7 @@ class PhysicalAiInferenceClient(Node):
                 )
                 return False
 
+            target = [s if t is None else t for s, t in zip(start, target)]
             traj = self._create_smooth_trajectory(joint_names, start, target, duration)
             client = self._action_clients[controller]
             if not client.wait_for_server(timeout_sec=5.0):
