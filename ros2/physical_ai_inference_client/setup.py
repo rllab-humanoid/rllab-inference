@@ -26,6 +26,7 @@ setup(
             'start_inference = physical_ai_inference_client.inference_client:main',
             'test_send_command_server = physical_ai_inference_client.test_send_command_server:main',
             'record_joint_positions = physical_ai_inference_client.record_joint_positions:main',
+            'joint_slider_gui = physical_ai_inference_client.joint_slider_gui:main',
         ],
     },
 )
