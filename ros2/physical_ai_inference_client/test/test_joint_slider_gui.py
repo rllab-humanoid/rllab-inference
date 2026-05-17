@@ -21,6 +21,9 @@ class FakeLogger:
     def error(self, message):
         self.messages.append(("error", message))
 
+    def warning(self, message):
+        self.messages.append(("warning", message))
+
 
 class FakeNode:
     def __init__(self, name):
@@ -203,6 +206,9 @@ def test_node_reads_joint_states_and_sends_follow_joint_trajectory_goal():
     assert goal.trajectory.points[0].positions == positions
     assert goal.trajectory.points[0].time_from_start.sec == 1
     assert goal.trajectory.points[0].time_from_start.nanosec == 0
+    assert ("info", "arm_l: target [arm_l_joint1=0.000, arm_l_joint2=0.100, arm_l_joint3=0.200, arm_l_joint4=0.300, arm_l_joint5=0.400, arm_l_joint6=0.500, arm_l_joint7=0.600, gripper_l_joint1=0.700]") in node.logger.messages
+    assert ("info", "arm_l: current [arm_l_joint1=0.250, arm_l_joint2=-0.500]") in node.logger.messages
+    assert not any(level == "warning" for level, _ in node.logger.messages)
 
 
 def test_gui_live_joint_state_update_clamps_and_skips_dragged_joint():

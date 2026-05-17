@@ -12,6 +12,7 @@ setup(
         ('share/' + package_name + '/config', [
             'config/inference.yaml',
             'config/initial_positions.yaml',
+            'config/initial_positions_full.yaml',
         ]),
     ],
     install_requires=['setuptools'],

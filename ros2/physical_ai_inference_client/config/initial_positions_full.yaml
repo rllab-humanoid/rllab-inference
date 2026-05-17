@@ -1,21 +1,5 @@
-# t 커맨드로 이동할 initial pose 설정
-# 하나의 ROS parameter YAML 안에 controller block들을 함께 둔다.
-#
-# 각 controller block의 step_names 순서대로 실행됨
-#
-# 각 step key에서 controller별 포지션 배열 정의:
-#   arm_l_joint_trajectory_executor:
-#     step_names: [target]
-#     target: [-1.5, 0.0, ...]
-#   arm_r_joint_trajectory_executor:
-#     step_names: [target]
-#     target: [-1.5, 0.0, ...]
-#   head_joint_trajectory_executor:
-#     step_names: [home]
-#     home: [0.44, 0.0981]
-#   lift_joint_trajectory_executor:
-#     step_names: [home]
-#     home: [-0.15]
+# v 커맨드로 이동할 full initial pose 설정
+# t용 initial_positions.yaml과 별도로 관리한다.
 
 /**:
   arm_l_joint_trajectory_executor:
@@ -29,8 +13,12 @@
         - arm_l_joint6
         - arm_l_joint7
         - gripper_l_joint1
-      step_names: [target]
-      target: [-1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      step_names: [home, test1, test2, test3, test5]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test1: [0.0, 0.75, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test2: [0.0, 1.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test3: [-1.5, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test5: [-1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       duration: 5.0
       position_tolerance: 0.1
       velocity_tolerance: 0.01
@@ -48,8 +36,12 @@
         - arm_r_joint6
         - arm_r_joint7
         - gripper_r_joint1
-      step_names: [target]
-      target: [-1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      step_names: [home, test1, test2, test3, test5]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test1: [0.0, -0.75, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test2: [0.0, -1.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test3: [-1.5, -1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      test5: [-1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       duration: 5.0
       position_tolerance: 0.1
       velocity_tolerance: 0.01

@@ -122,6 +122,40 @@ class JointSliderNode(Node):
         if not client.wait_for_server(timeout_sec=wait_timeout):
             return f'{spec.name}: action server unavailable ({spec.action_name})'
 
+        current_positions = self.latest_positions()
+        target_pairs = list(zip(spec.joint_names, positions))
+        target_text = ', '.join(f'{name}={value:.3f}' for name, value in target_pairs)
+        self.get_logger().info(f'{spec.name}: target [{target_text}]')
+
+        if current_positions:
+            observed_pairs = [
+                (name, current_positions[name])
+                for name in spec.joint_names
+                if name in current_positions
+            ]
+            if observed_pairs:
+                observed_text = ', '.join(
+                    f'{name}={value:.3f}' for name, value in observed_pairs
+                )
+                self.get_logger().info(f'{spec.name}: current [{observed_text}]')
+
+                if len(observed_pairs) == len(target_pairs):
+                    max_delta = max(
+                        abs(target - current_positions[name])
+                        for name, target in target_pairs
+                    )
+                    if max_delta < 1e-3:
+                        self.get_logger().warning(
+                            f'{spec.name}: target is effectively identical to /joint_states; '
+                            'the robot may not visibly move'
+                        )
+            else:
+                self.get_logger().info(
+                    f'{spec.name}: no matching joints found in /joint_states'
+                )
+        else:
+            self.get_logger().info(f'{spec.name}: no /joint_states received yet')
+
         trajectory = JointTrajectory()
         trajectory.joint_names = list(spec.joint_names)
         point = JointTrajectoryPoint()
@@ -162,7 +196,7 @@ class JointSliderGui:
         self.value_labels: dict[str, ttk.Label] = {}
         self.status_var = tk.StringVar(value='Ready. Sliders do not move the robot until you press Send.')
         self.auto_send_var = tk.BooleanVar(value=False)
-        self.follow_joint_states_var = tk.BooleanVar(value=True)
+        self.follow_joint_states_var = tk.BooleanVar(value=False)
         self.dragging_joints: set[str] = set()
 
         self._build()
