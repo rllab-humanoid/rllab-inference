@@ -30,9 +30,41 @@ ros2 run physical_ai_inference_client start_inference
 
 - `s`: robot type을 먼저 설정한 뒤 policy checkpoint path를 직접 입력받아 inference 시작
 - `f`: `/task/command` service에 `FINISH` command 전송
+- `p`: **(hot-swap)** 다른 policy checkpoint를 백그라운드로 preload — 서버가 worker로 from_pretrained 수행. PRELOAD service는 sync 응답이라 콘솔이 ~5-15초 멈춘 뒤 "preload READY" 또는 실패 메시지를 받음. 그동안 서버 timer는 다른 thread에서 정상 동작해 추론이 끊기지 않음.
+- `w`: **(hot-swap)** 미리 load된 policy로 즉시 교체. 진행 중이면 `swap_response_timeout_s` 까지 대기.
+- `c`: **(hot-swap)** 진행 중인 preload 취소. 클라이언트 콘솔에 어떤 path를 취소하는지 미리 출력 — `Cancelling preload of /path/B`.
 - `t`: 책상 위에서 쓰는 `initial_positions.yaml` 초기 자세로 이동
 - `v`: 책상 아래에서 쓰는 `initial_positions_full.yaml` 초기 자세로 이동
 - `q`: controller 종료
+
+### Hot-swap inference 흐름
+
+```
+> s       # 첫 추론 시작 (policy A)
+> p       # policy B path 입력
+[INFO] Sending PRELOAD_POLICY request: /path/B
+[INFO] Waiting for the server to finish loading the policy. This usually takes
+       several seconds; cancel from another terminal via /task/command
+       (command=10) if needed.
+        ← 콘솔 ~5-15초 멈춤. 서버 timer는 다른 thread에서 계속 동작.
+[INFO] Service accepted command: preload READY: /path/B
+
+> w       # 즉시 교체
+[INFO] Service accepted command: swapped to /path/B
+        # 다음 tick부터 policy B로 추론. policy A는 GPU에서 해제 (empty_cache).
+```
+
+PRELOAD 도중 별도 터미널에서 cancel:
+```bash
+ros2 service call /task/command physical_ai_interfaces/srv/SendCommand "{command: 10}"
+# → 원래 콘솔의 PRELOAD service call이 "preload was cancelled" 응답을 받음
+```
+
+`_resolve_policy_path`는 클라이언트가 server와 같은 머신/docker일 때만 path inspect를 수행합니다. 분리된 환경이면 다음 info 메시지가 뜨고 path를 그대로 server에 전달하며, server의 `_inspect_policy`가 진짜 검증을 담당합니다:
+```
+Client cannot see this path locally (likely running on a different host than the
+server); sending it as-is for the server to validate: /path/B
+```
 
 `s`를 누르면 먼저 `/get_robot_types`로 robot type 목록을 받아 선택하고, 선택한 값을 `/set_robot_type`에 설정한 뒤 policy checkpoint path를 직접 입력합니다. 현재 server의 `/get_saved_policies` callback은 특정 HuggingFace cache 구조에서 server process를 죽일 수 있어서 기본 흐름에서는 호출하지 않습니다.
 
@@ -179,3 +211,28 @@ q  # client 종료
 ```
 
 초기 자세 이동도 slider GUI와 동일하게 `FollowJointTrajectory` action goal을 `/arm_l_controller/follow_joint_trajectory`, `/arm_r_controller/follow_joint_trajectory`, `/head_controller/follow_joint_trajectory`, `/lift_controller/follow_joint_trajectory`로 보냅니다.
+
+## Hot-swap ROS parameters
+
+전체 변경 내역은 [VERSION](../../VERSION) 참조. Hot-swap 관련 ROS 파라미터:
+
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `swap_response_timeout_s` | 60.0 | SWAP service 응답 대기 시간. 서버 측 `swap_timeout_s`보다 약간 큰 값 권장. |
+| `preload_response_timeout_s` | 180.0 | PRELOAD service 응답 대기 시간. 서버는 worker 끝까지 sync wait하므로 큰 모델일수록 길게. 서버 측 `preload_timeout_s` 보다 큰 값. |
+
+```bash
+# 큰 모델 (>5GB) 사용 시
+ros2 run physical_ai_inference_client start_inference \
+  --ros-args -p preload_response_timeout_s:=300.0 -p swap_response_timeout_s:=90.0
+```
+
+## Test
+
+```bash
+colcon test --packages-select physical_ai_inference_client
+colcon test-result --verbose
+# → 31 tests, 0 failures
+```
+
+새 콘솔 명령(`p`/`w`/`c`) 및 hot-swap state 전이는 `test/test_inference_client_*` 4개 파일로 검증됩니다 (FakeNode 패턴, 실제 ROS 미실행).

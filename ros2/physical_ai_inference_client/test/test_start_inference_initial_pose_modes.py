@@ -297,11 +297,13 @@ def test_console_prompt_mentions_v(monkeypatch, tmp_path):
 
     assert node.run_console() is True
     assert any("[v] full initial pose" in prompt for prompt in prompts)
-    assert (
-        "info",
-        "Interactive inference controller ready. Input: s=start, f=finish/stop, "
-        "t=tabletop initial pose, v=under-desk initial pose, q=quit",
-    ) in node.logger.messages
+    info_msgs = [
+        msg for level, msg in node.logger.messages if level == 'info']
+    assert any(
+        'Interactive inference controller ready' in msg
+        and 'v=under-desk initial pose' in msg
+        for msg in info_msgs
+    )
 
 
 def test_t_and_v_parse_separate_ros_parameter_pose_configs(tmp_path):

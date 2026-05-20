@@ -88,6 +88,8 @@ class PhysicalAiInferenceClient(Node):
         self.declare_parameter('record_rosbag2', False)
         self.declare_parameter('service_wait_timeout_s', 10.0)
         self.declare_parameter('response_timeout_s', 30.0)
+        self.declare_parameter('swap_response_timeout_s', 60.0)
+        self.declare_parameter('preload_response_timeout_s', 180.0)
 
         if policy_path:
             self.set_parameters([Parameter('policy_path', value=policy_path)])
@@ -117,6 +119,7 @@ class PhysicalAiInferenceClient(Node):
         )
         self._current_policy_path = str(self.get_parameter('policy_path').value)
         self._current_robot_type = str(self.get_parameter('robot_type').value)
+        self._pending_policy_path: str | None = None
 
         self._initial_pose_plans: dict[str, InitialPosePlan | None] = {
             key: self._load_initial_pose_plan(filename, label)
@@ -130,7 +133,8 @@ class PhysicalAiInferenceClient(Node):
     def run_console(self) -> bool:
         self.get_logger().info(
             'Interactive inference controller ready. '
-            'Input: s=start, f=finish/stop, t=tabletop initial pose, '
+            'Input: s=start, f=finish/stop, p=preload, w=swap, '
+            'c=cancel preload, t=tabletop initial pose, '
             'v=under-desk initial pose, q=quit'
         )
 
@@ -138,6 +142,8 @@ class PhysicalAiInferenceClient(Node):
             try:
                 command = input(
                     '\n[s] start inference, [f] stop inference, '
+                    '[p] preload checkpoint, [w] swap to preloaded, '
+                    '[c] cancel preload, '
                     '[t] short initial pose, [v] full initial pose, [q] quit > '
                 )
             except (EOFError, KeyboardInterrupt):
@@ -150,6 +156,12 @@ class PhysicalAiInferenceClient(Node):
                 self._handle_start_input()
             elif command == 'f':
                 self.send_finish()
+            elif command == 'p':
+                self._handle_preload_input()
+            elif command == 'w':
+                self.send_swap_policy()
+            elif command == 'c':
+                self.send_cancel_preload()
             elif command == 't':
                 self._handle_initial_pose_input('t')
             elif command == 'v':
@@ -158,7 +170,7 @@ class PhysicalAiInferenceClient(Node):
                 self.get_logger().info('Exiting interactive controller')
                 return True
             elif command:
-                print('Unknown input. Use s, f, t, v, or q.')
+                print('Unknown input. Use s, f, p, w, c, t, v, or q.')
 
         return True
 
@@ -597,6 +609,14 @@ class PhysicalAiInferenceClient(Node):
         self.set_parameters([Parameter('policy_path', value=policy_path)])
         self.send_start_inference(policy_path=policy_path)
 
+    def _handle_preload_input(self) -> None:
+        policy_path = self._select_policy_path()
+        if not policy_path:
+            return
+
+        policy_path = self._resolve_policy_path(policy_path)
+        self.send_preload_policy(policy_path=policy_path)
+
     def _select_policy_path(self) -> str | None:
         if bool(self.get_parameter('use_saved_policy_list_service').value):
             saved_policies = self.get_saved_policies()
@@ -718,20 +738,28 @@ class PhysicalAiInferenceClient(Node):
         return self._handle_command_response(response)
 
     def _resolve_policy_path(self, policy_path: str) -> str:
+        # The path refers to a directory on the *server* machine. If this
+        # client happens to run on the same host (or a shared docker mount)
+        # we can offer the user extra conveniences below — e.g. expanding a
+        # training-output directory into selectable checkpoints. Otherwise
+        # we send the path verbatim and let the server's _inspect_policy do
+        # the real validation.
         path = Path(policy_path).expanduser()
         try:
             path_exists = path.exists()
         except PermissionError:
             self.get_logger().warning(
-                'Policy path cannot be inspected from this client due to '
-                f'permission restrictions; sending it as-is: {policy_path}'
+                'Policy path cannot be inspected on this client (permission '
+                f'denied); sending it as-is for the server to validate: '
+                f'{policy_path}'
             )
             return policy_path
 
         if not path_exists:
-            self.get_logger().warning(
-                'Policy path is not visible from this client machine; sending it '
-                f'as-is: {policy_path}'
+            self.get_logger().info(
+                'Client cannot see this path locally (likely running on a '
+                'different host than the server); sending it as-is for the '
+                f'server to validate: {policy_path}'
             )
             return policy_path
 
@@ -809,11 +837,93 @@ class PhysicalAiInferenceClient(Node):
         )
         return self._handle_command_response(response)
 
-    def _call_service(self, client, request, service_name: str):
+    def send_preload_policy(self, policy_path: str) -> bool:
+        request = self._build_request(
+            command=SendCommand.Request.PRELOAD_POLICY,
+            policy_path=policy_path,
+        )
+        self.get_logger().info(
+            f'Sending PRELOAD_POLICY request: {policy_path}'
+        )
+        self.get_logger().info(
+            'Waiting for the server to finish loading the policy. '
+            'This usually takes several seconds; cancel from another '
+            'terminal via /task/command (command=10) if needed.'
+        )
+
+        preload_timeout = float(
+            self.get_parameter('preload_response_timeout_s').value
+        )
+        response = self._call_service(
+            client=self._command_client,
+            request=request,
+            service_name=self._service_name,
+            response_timeout_s=preload_timeout,
+        )
+        ok = self._handle_command_response(response)
+        if ok:
+            self._pending_policy_path = policy_path
+        return ok
+
+    def send_swap_policy(self) -> bool:
+        request = self._build_request(
+            command=SendCommand.Request.SWAP_POLICY,
+            policy_path=self._current_policy_path,
+        )
+        self.get_logger().info('Sending SWAP_POLICY request')
+
+        swap_timeout = float(
+            self.get_parameter('swap_response_timeout_s').value
+        )
+        response = self._call_service(
+            client=self._command_client,
+            request=request,
+            service_name=self._service_name,
+            response_timeout_s=swap_timeout,
+        )
+        ok = self._handle_command_response(response)
+        if ok and getattr(self, '_pending_policy_path', None):
+            self._current_policy_path = self._pending_policy_path
+            self.set_parameters([
+                Parameter('policy_path', value=self._current_policy_path)
+            ])
+            self._pending_policy_path = None
+        return ok
+
+    def send_cancel_preload(self) -> bool:
+        request = self._build_request(
+            command=SendCommand.Request.CANCEL_PRELOAD,
+            policy_path=self._current_policy_path,
+        )
+        if self._pending_policy_path:
+            self.get_logger().info(
+                f'Cancelling preload of {self._pending_policy_path}'
+            )
+        else:
+            self.get_logger().info(
+                'Sending CANCEL_PRELOAD (no client-side record of a '
+                'pending policy — checking with server)'
+            )
+
+        response = self._call_service(
+            client=self._command_client,
+            request=request,
+            service_name=self._service_name,
+        )
+        ok = self._handle_command_response(response)
+        if ok:
+            self._pending_policy_path = None
+        return ok
+
+    def _call_service(self, client, request, service_name: str,
+                      response_timeout_s: float | None = None):
         service_wait_timeout_s = float(
             self.get_parameter('service_wait_timeout_s').value
         )
-        response_timeout_s = float(self.get_parameter('response_timeout_s').value)
+        if response_timeout_s is None:
+            response_timeout_s = float(
+                self.get_parameter('response_timeout_s').value
+            )
 
         self.get_logger().info(f'Waiting for service: {service_name}')
         if not client.wait_for_service(timeout_sec=service_wait_timeout_s):

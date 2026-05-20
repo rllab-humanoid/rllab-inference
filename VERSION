@@ -1,0 +1,54 @@
+# Changelog — rllab-inference
+
+이 파일은 `rllab-humanoid/rllab-inference` 리포지토리의 변경 사항을 기록합니다. 새로 변경할 때마다 맨 위에 entry를 추가하세요. 형식은 [Keep a Changelog](https://keepachangelog.com/) 스타일을 따릅니다.
+
+---
+
+## [0.1.1] — 2026-05-20
+
+### Changed
+- **`send_preload_policy`가 새 ROS 파라미터 `preload_response_timeout_s`를 사용.** 서버 측 PRELOAD가 sync 응답으로 바뀌어 응답 시간이 길어졌기 때문 (서버 default 120s, 클라이언트 default 180s — 약간 여유).
+- **`send_cancel_preload`가 호출 직전에 pending path를 출력.**
+  - 형식: `Cancelling preload of /path/B` (pending이 알려진 경우)
+  - 또는: `Sending CANCEL_PRELOAD (no client-side record of a pending policy — checking with server)`
+- **`_resolve_policy_path`의 warning 메시지 다듬기.** "Client cannot see this path locally (likely running on a different host than the server); sending it as-is for the server to validate" — client/server 분리 상황을 명시.
+
+### Added
+- ROS 파라미터 `preload_response_timeout_s` (기본 180.0s) — client. PRELOAD service 응답 대기.
+- 테스트 케이스 추가:
+  - `test_inference_client_send_methods.py`: cancel preview 메시지 검증 (2 케이스)
+  - `test_inference_client_call_service_compat.py`: `preload_response_timeout_s` 파라미터 존재 + `send_preload_policy`가 이를 사용 (2 케이스)
+
+### Test
+- 총 31 case → **0 failure** (`colcon test --packages-select physical_ai_inference_client`).
+
+---
+
+## [0.1.0] — 2026-05-20
+
+### Added — Hot-swap inference checkpoint feature (client side)
+서버 측 PRELOAD/SWAP/CANCEL_PRELOAD 명령에 대응하는 콘솔 UX 추가.
+
+- **`ros2/physical_ai_inference_client/physical_ai_inference_client/inference_client.py`**:
+  - 콘솔 메뉴에 `p` (preload), `w` (swap), `c` (cancel preload) 추가
+  - 신규 메서드:
+    - `send_preload_policy(policy_path)` — `SendCommand.Request.PRELOAD_POLICY` 전송
+    - `send_swap_policy()` — `SendCommand.Request.SWAP_POLICY` 전송, `swap_response_timeout_s` 만큼 대기
+    - `send_cancel_preload()` — `SendCommand.Request.CANCEL_PRELOAD` 전송
+    - `_handle_preload_input()` — 콘솔 path 선택 헬퍼 (기존 `_select_policy_path` / `_resolve_policy_path` 재사용)
+  - 새 멤버 `_pending_policy_path` — preload 시점에 기록, swap 성공 시 `_current_policy_path`로 승격
+  - ROS 파라미터 `swap_response_timeout_s` (기본 60.0s) — SWAP service 응답 대기
+  - `_call_service`에 optional `response_timeout_s` 인자 추가 (backward-compatible)
+
+### Test
+- **신규 테스트 4개 파일** in `ros2/physical_ai_inference_client/test/`
+  - conftest.py: FakeNode / CapturingClient / sys.modules stubbing 공유
+  - `test_inference_client_send_methods.py`: 각 send_* 메서드가 정확한 command 값(8/9/10) 전송
+  - `test_inference_client_state_transitions.py`: `_pending_policy_path` 전이 (preload→pending, cancel→clear, swap→promote to current)
+  - `test_inference_client_call_service_compat.py`: `response_timeout_s` 후방호환 + SWAP의 longer timeout
+  - `test_inference_client_console_keys.py`: 콘솔 dispatch + 도움말 텍스트
+- 기존 테스트 `test_start_inference_initial_pose_modes.py`의 console-prompt 검증을 의미 기반으로 완화 (정확 문구 매칭 → 키워드 포함 여부)
+- 총 28 case → **0 failure**.
+
+### Notes
+- `ros2/physical_ai_interfaces/`는 서버 측 `physical_ai_tools/physical_ai_interfaces`와 동일 이름이라 `COLCON_IGNORE`로 빌드 제외 — 서버 측 사본을 사용.
